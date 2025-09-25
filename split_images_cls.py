@@ -2,27 +2,46 @@ import os
 import random
 import shutil
 from pathlib import Path
+import pandas as pd  # pandas 라이브러리 추가
 
 # --------------------------------------------------
 # ✅ 사용자가 수정해야 할 부분
 # --------------------------------------------------
 # 1. 분할할 원본 이미지가 담긴 폴더 경로 (클래스별 폴더 포함)
-ORIGINAL_DATASET_PATH = r"C:\Users\sega0\Desktop\code\wild\original"
+ORIGINAL_DATASET_PATH = r"C:\Users\sega0\Desktop\folder\code\wild\images"
 
 # 2. 분할된 train/val/test 데이터셋을 저장할 새로운 폴더 경로
-NEW_DATASET_PATH = r"C:\Users\sega0\Desktop\code\wild\dataset" # 이 폴더는 비어있어야 합니다.
+NEW_DATASET_PATH = r"C:\Users\sega0\Desktop\folder\code\wild\dataset" # 이 폴더는 비어있어야 합니다.
 
 # 3. Test 세트로 분리할 이미지 개수 (각 클래스별)
 NUM_TEST_IMAGES_PER_CLASS = 5
 
 # 4. (Test 이미지를 제외한 나머지에서) Train/Val 분할 비율
 TRAIN_RATIO = 0.8
+
+# 5. CSV 파일 경로
+CSV_FILE_PATH = r'C:\Users\sega0\Desktop\folder\code\wild\wild\종별이미지개수.csv'
 # --------------------------------------------------
 
-def split_dataset_with_test(original_path, new_path, num_test, train_ratio):
+
+def split_dataset_with_test(original_path, new_path, num_test, train_ratio, csv_path):
     """
     데이터셋을 train/val/test 폴더로 분할하여 복사하는 함수
     """
+    # --- CSV 파일에서 상위 10개 폴더 목록 가져오기 ---
+    try:
+        df = pd.read_csv(csv_path)
+        # 'file_count'가 많은 순으로 정렬하고 상위 10개 폴더 이름을 리스트로 저장
+        top_10_folders = df.nlargest(11, 'file_count')['folder'].tolist()
+        print("✅ CSV 파일에서 상위 10개 폴더를 성공적으로 불러왔습니다.")
+        print(" - 대상 폴더:", top_10_folders)
+    except FileNotFoundError:
+        print(f"❌ 오류: CSV 파일을 찾을 수 없습니다. 경로를 확인하세요: {csv_path}")
+        return # 파일이 없으면 함수 종료
+    except Exception as e:
+        print(f"❌ CSV 파일 처리 중 오류가 발생했습니다: {e}")
+        return
+
     # 경로 객체 생성
     original_path = Path(original_path)
     new_path = Path(new_path)
@@ -33,15 +52,17 @@ def split_dataset_with_test(original_path, new_path, num_test, train_ratio):
     # 기존 폴더가 있다면 삭제 (주의!)
     if new_path.exists():
         shutil.rmtree(new_path)
-    
+
     # train, val, test 폴더 생성
     train_path.mkdir(parents=True)
     val_path.mkdir(parents=True)
     test_path.mkdir(parents=True)
-    print(f"'{new_path}' 폴더를 생성하고 train/val/test 하위 폴더를 만들었습니다.")
+    print(f"\n'{new_path}' 폴더를 생성하고 train/val/test 하위 폴더를 만들었습니다.")
 
-    # 원본 데이터셋의 클래스 폴더 목록 가져오기
-    class_dirs = [d for d in original_path.iterdir() if d.is_dir()]
+    # --- 원본 데이터셋의 클래스 폴더 중 상위 10개만 선택 ---
+    all_class_dirs = [d for d in original_path.iterdir() if d.is_dir()]
+    # all_class_dirs 리스트에서 이름이 top_10_folders 리스트에 포함된 폴더만 필터링
+    class_dirs = [d for d in all_class_dirs if d.name in top_10_folders]
 
     for class_dir in class_dirs:
         class_name = class_dir.name
@@ -60,10 +81,10 @@ def split_dataset_with_test(original_path, new_path, num_test, train_ratio):
         if len(images) < num_test:
             print(f"  - 경고: '{class_name}' 클래스의 전체 이미지({len(images)}개)가 테스트 개수({num_test}개)보다 적습니다.")
             continue
-        
+
         test_images = images[:num_test]
         remaining_images = images[num_test:] # 테스트용을 제외한 나머지 이미지들
-
+    
         for img in test_images:
             shutil.copy(img, test_path / class_name)
         print(f"  - Test: {len(test_images)}개 이미지 복사 완료.")
@@ -75,12 +96,12 @@ def split_dataset_with_test(original_path, new_path, num_test, train_ratio):
 
         for img in train_images:
             shutil.copy(img, train_path / class_name)
-        
+
         for img in val_images:
             shutil.copy(img, val_path / class_name)
-        
+
         print(f"  - Train: {len(train_images)}개, Val: {len(val_images)}개 이미지 복사 완료.")
 
 if __name__ == '__main__':
-    split_dataset_with_test(ORIGINAL_DATASET_PATH, NEW_DATASET_PATH, NUM_TEST_IMAGES_PER_CLASS, TRAIN_RATIO)
+    split_dataset_with_test(ORIGINAL_DATASET_PATH, NEW_DATASET_PATH, NUM_TEST_IMAGES_PER_CLASS, TRAIN_RATIO, CSV_FILE_PATH)
     print("\n✅ 모든 데이터셋 분할(train/val/test)이 완료되었습니다.")
