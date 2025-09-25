@@ -3,31 +3,49 @@ import shutil
 from pathlib import Path
 import pandas as pd
 import random
+import json # ✨ [추가됨] JSON 라이브러리 import
 
 # --------------------------------------------------
-# ✅ 사용자가 수정해야 할 부분 (상대 경로 방식)
+# ✅ 설정 부분 (경로 및 옵션)
 # --------------------------------------------------
-# 1. 현재 .py 스크립트 파일이 있는 폴더를 기준 경로로 설정
 BASE_DIR = Path(__file__).resolve().parent
-
-# 2. 기준 경로를 바탕으로 나머지 경로들을 설정
 ORIGINAL_DATASET_PATH = BASE_DIR.parent / "images" 
 NEW_DATASET_PATH = BASE_DIR / "dataset"
 CSV_FILE_PATH = BASE_DIR / "종별이미지개수.csv"
+EXCLUDE_JSON_PATH = BASE_DIR / "exclude_files.json"
 
-# 3. 나머지 설정값들은 그대로 유지
 NUM_TEST_IMAGES_PER_CLASS = 5
 TRAIN_RATIO = 0.8
 NUM_TOP_CLASSES = 10
+
+def load_exclude_list(json_path):
+    """JSON 파일에서 제외할 파일 목록을 읽어옵니다."""
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if 'exclude' in data and isinstance(data['exclude'], list):
+            print(f"✅ '{json_path.name}' 파일에서 {len(data['exclude'])}개의 제외 목록을 불러왔습니다.")
+            return data['exclude']
+        else:
+            print(f"⚠️ 경고: JSON 파일에 'exclude' 키가 없거나 리스트 형식이 아닙니다.")
+            return []
+    except FileNotFoundError:
+        print(f"⚠️ 경고: 제외 목록 파일('{json_path.name}')을 찾을 수 없습니다. 빈 목록으로 진행합니다.")
+        return []
+    except json.JSONDecodeError:
+        print(f"⚠️ 경고: '{json_path.name}' 파일의 형식이 올바르지 않습니다.")
+        return []
+
 # --------------------------------------------------
 
-
-def split_and_overwrite_top_classes(original_path, new_path, num_test, train_ratio, csv_path, num_top):
+# ✨ [수정됨] exclude_list 인자를 받도록 함수 시그니처 수정
+def split_and_overwrite_top_classes(original_path, new_path, num_test, train_ratio, csv_path, num_top, exclude_list):
     """
     지정된 상위 N개 클래스에 대해서만 데이터셋을 새로 분할하고,
     기존 train/val/test 폴더에 있던 해당 클래스 폴더를 덮어쓰는 함수
     """
-    # --- CSV 파일에서 상위 폴더 목록 가져오기 ---
+    exclude_set = set(exclude_list)
+
     try:
         df = pd.read_csv(csv_path)
         top_folders = df.nlargest(num_top, 'file_count')['folder'].tolist()
@@ -37,29 +55,24 @@ def split_and_overwrite_top_classes(original_path, new_path, num_test, train_rat
         print(f"❌ CSV 파일 처리 중 오류가 발생했습니다: {e}")
         return
 
-    # 경로 객체 생성
     original_path = Path(original_path)
     new_path = Path(new_path)
     train_path = new_path / 'train'
     val_path = new_path / 'val'
     test_path = new_path / 'test'
 
-    # train/val/test 기본 폴더가 없으면 생성
     train_path.mkdir(parents=True, exist_ok=True)
     val_path.mkdir(parents=True, exist_ok=True)
     test_path.mkdir(parents=True, exist_ok=True)
 
-    # --- CSV에서 불러온 상위 클래스들만 처리 ---
     for class_name in top_folders:
+        print(f"\n▶ '{class_name}' 클래스 처리 시작...")
         class_dir = original_path / class_name
         
         if not class_dir.is_dir():
-            print(f"\n⚠️ 경고: 원본 폴더 '{original_path}'에서 '{class_name}' 클래스를 찾을 수 없어 건너뜁니다.")
+            print(f"  - ⚠️ 경고: 원본 폴더 '{class_dir}'를 찾을 수 없습니다. 건너뜁니다.")
             continue
             
-        print(f"\n'{class_name}' 클래스 처리 중...")
-
-        # --- 1단계: 기존 폴더 삭제 (덮어쓰기 준비) ---
         target_folders = [
             train_path / class_name,
             val_path / class_name,
@@ -69,26 +82,27 @@ def split_and_overwrite_top_classes(original_path, new_path, num_test, train_rat
         for folder in target_folders:
             if folder.exists():
                 shutil.rmtree(folder)
-        print(f"  - 기존 '{class_name}' 폴더를 삭제했습니다.")
+        print(f"  - 기존 '{class_name}' 폴더를 삭제했습니다.")
 
-        # --- 2단계: 새 폴더 생성 및 데이터 분할/복사 ---
         for folder in target_folders:
             folder.mkdir()
         
-        images = list(class_dir.glob('*.*'))
+        # ✨ [수정됨] 제외 목록에 있는 파일 필터링 로직 추가
+        all_images_in_folder = list(class_dir.glob('*.*'))
+        images = [img for img in all_images_in_folder if img.name not in exclude_set]
+        
+        excluded_count = len(all_images_in_folder) - len(images)
+        if excluded_count > 0:
+            print(f"  - 제외 목록에 따라 {excluded_count}개의 파일을 건너뜁니다.")
+        
         random.shuffle(images)
 
         if len(images) < num_test:
-            print(f"  - ⚠️ 경고: 전체 이미지({len(images)}개)가 테스트 개수({num_test}개)보다 적습니다.")
-            continue
+            print(f"  - ⚠️ 경고: (제외 파일 제외 후) 분할할 이미지가 테스트 개수({num_test}개)보다 적습니다.")
 
-        # Test 데이터 분리
         test_images = images[:num_test]
         remaining_images = images[num_test:]
-        for img in test_images:
-            shutil.copy(img, test_path / class_name)
         
-        # Train/Val 데이터 분리
         split_point = int(len(remaining_images) * train_ratio)
         train_images = remaining_images[:split_point]
         val_images = remaining_images[split_point:]
@@ -97,17 +111,24 @@ def split_and_overwrite_top_classes(original_path, new_path, num_test, train_rat
             shutil.copy(img, train_path / class_name)
         for img in val_images:
             shutil.copy(img, val_path / class_name)
+        for img in test_images:
+            shutil.copy(img, test_path / class_name)
 
-        print(f"  - Test: {len(test_images)}개, Train: {len(train_images)}개, Val: {len(val_images)}개 이미지 복사 완료.")
+        print(f"  - ✅ 복사 완료: Train({len(train_images)}), Val({len(val_images)}), Test({len(test_images)})")
 
 
 if __name__ == '__main__':
+    # ✨ [수정됨] 스크립트 시작 시 JSON 파일에서 목록을 먼저 불러옴
+    exclude_file_list = load_exclude_list(EXCLUDE_JSON_PATH)
+    
+    # ✨ [수정됨] 불러온 목록을 함수의 마지막 인자로 전달
     split_and_overwrite_top_classes(
         ORIGINAL_DATASET_PATH,
         NEW_DATASET_PATH,
         NUM_TEST_IMAGES_PER_CLASS,
         TRAIN_RATIO,
         CSV_FILE_PATH,
-        NUM_TOP_CLASSES
+        NUM_TOP_CLASSES,
+        exclude_file_list 
     )
-    print("\n✅ 지정된 모든 클래스의 분할 및 덮어쓰기가 완료되었습니다.")
+    print("\n✅ 모든 작업이 완료되었습니다.")
