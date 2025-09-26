@@ -7,8 +7,8 @@ import pandas as pd
 # --------------------------------------------------
 # ✅ 사용자가 수정해야 할 부분
 # --------------------------------------------------
-MODEL_PATH = r"C:\Users\sega0\Desktop\folder\code\wild\runs\classify\test11\weights\best.pt"
-TEST_DATASET_PATH = r"C:\Users\sega0\Desktop\folder\code\wild\dataset\test"
+MODEL_PATH = r"C:\Users\sega0\Desktop\code\runs\classify\test2\weights\best.pt"
+TEST_DATASET_PATH = r"C:\Users\sega0\Desktop\code\try\dataset\test"
 RESULTS_SAVE_PATH = Path(MODEL_PATH).parent.parent
 VISUALIZED_IMAGES_SAVE_DIR = RESULTS_SAVE_PATH / "visualized_predictions"
 FONT_PATH = "C:/Windows/Fonts/malgunbd.ttf"
@@ -125,6 +125,11 @@ def main():
     csv_save_path = RESULTS_SAVE_PATH / 'prediction_summary.csv'
     try:
         df.to_csv(csv_save_path, index=False, encoding='utf-8-sig')
+        if total_images > 0:
+            with open(csv_save_path, 'a',encoding='utf-8-sig',newline="") as f: 
+                f.write('\n')
+                summary_line=f"\n전체 정확도,{total_images}개중,{total_correct}개 정답,{overall_accuracy:.2f}%\n"
+                f.write(summary_line)
         print(f"\n\n💾 결과가 CSV 파일로 성공적으로 저장되었습니다.")
         print(f"  -> 저장 위치: {csv_save_path}")
     except Exception as e:
